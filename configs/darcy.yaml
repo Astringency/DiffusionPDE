@@ -1,0 +1,29 @@
+data:
+  name: 'Darcy'
+  datapath: '/large_storage/zhangxf/PDEdata/test1125/darcy_test_1000-128-128.mat'
+  # datapath: '/large_storage/zhangxf/PDEdata/darcy/darcy_1000-128-128_test.mat'
+  offset: 0
+  obs_size: 500
+
+test:
+  pre-trained: '/research_data/users/zhangxifeng/C01Python/DiffusionPDE/output/pretrained/pretrained-darcy.pkl'
+  iterations: 2000
+
+generate:
+  problem: 'both'
+  seed: 0
+  device: 'cuda:1'
+  batch_size: 1
+  sigma_min: 0.002
+  sigma_max: 80
+  rho: 7
+  zeta_obs_a: 5
+  zeta_obs_u: 5000
+  zeta_pde: 100
+  guide: True
+  full: False
+
+output:
+  file_path: '/research_data/users/zhangxifeng/C01Python/Eval/DeepLearning4PDE/samples/DiffusionPDE/'
+  save: True
+  return: False

@@ -1,0 +1,27 @@
+data:
+  name: 'Shallow-water'
+  datapath: '/large_storage/zhangxf/PDEdata/shallow_water/2d_swe_128_128_10_0.h5'
+  offset: 0
+  obs_size: 500
+
+test:
+  pre-trained: '/research_data/users/zhangxifeng/C01Python/DiffusionPDE/output/pretrained/pretrained-shallow_water.pkl'
+  iterations: 2000
+
+generate:
+  seed: 0
+  device: 'cuda:1'
+  batch_size: 1
+  sigma_min: 0.002
+  sigma_max: 80
+  rho: 7
+  zeta_obs_a: 400
+  zeta_obs_u: 20000
+  zeta_pde: 100
+  guide: True
+  full: False
+
+output:
+  file_path: '/research_data/users/zhangxifeng/C01Python/Eval/DeepLearning4PDE/samples/DiffusionPDE/'
+  save: True
+  return: False

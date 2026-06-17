@@ -1,0 +1,28 @@
+data:
+  name: 'Poisson'
+  datapath: '/large_storage/zhangxf/PDEdata/test1125/poisson_test_1000-128-128.mat'
+  # datapath: '/large_storage/zhangxf/PDEdata/poisson/poisson_1000-128-128_test.mat'
+  offset: 188
+  obs_size: 500
+
+test:
+  pre-trained: '/research_data/users/zhangxifeng/C01Python/DiffusionPDE/output/pretrained/pretrained-poisson.pkl'
+  iterations: 2000
+
+generate:
+  seed: 0
+  device: 'cuda:1'
+  batch_size: 1
+  sigma_min: 0.001
+  sigma_max: 80
+  rho: 7
+  zeta_obs_a: 800
+  zeta_obs_u: 20000
+  zeta_pde: 1
+  guide: True
+  full: False
+
+output:
+  file_path: '/research_data/users/zhangxifeng/C01Python/Eval/DeepLearning4PDE/samples/DiffusionPDE/'
+  save: True
+  return: False
