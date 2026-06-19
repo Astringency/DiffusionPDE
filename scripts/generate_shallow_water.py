@@ -37,6 +37,67 @@ def generate_shallow_water_loss(a, u, a_GT, u_GT, a_mask, u_mask, resolution, de
     # return pde_loss, observation_loss_a, observation_loss_u
     return observation_loss_a, observation_loss_u
 
+
+def shallow_water_pair_from_group(group):
+    h0 = np.expand_dims(group['h'][0, :, :, 0], axis = 0) # type: ignore
+    h = np.expand_dims(group['h'][-1, :, :, 0], axis = 0) # type: ignore
+    if 'hu' in group and 'hv' in group:
+        hu0 = np.expand_dims(group['hu'][0, :, :, 0], axis = 0) # type: ignore
+        hu = np.expand_dims(group['hu'][-1, :, :, 0], axis = 0) # type: ignore
+        hv0 = np.expand_dims(group['hv'][0, :, :, 0], axis = 0) # type: ignore
+        hv = np.expand_dims(group['hv'][-1, :, :, 0], axis = 0) # type: ignore
+        return np.concatenate([h0, hu0, hv0, h, hu, hv], axis = 0)
+    return np.concatenate([h0, h], axis = 0)
+
+
+def shallow_water_pair_from_array(arr, offset=0):
+    arr = np.asarray(arr)
+    if arr.ndim == 5:
+        sample = arr[offset]
+    elif arr.ndim == 4:
+        if arr.shape[-1] in (1, 3) or (arr.shape[1] in (1, 3) and arr.shape[-1] == arr.shape[-2]):
+            sample = arr
+        else:
+            sample = arr[offset]
+    elif arr.ndim == 3:
+        sample = arr
+    else:
+        raise ValueError(f"Cannot infer shallow_water sample from shape={arr.shape}")
+    return np.concatenate([shallow_water_frame(sample, 0), shallow_water_frame(sample, -1)], axis = 0)
+
+
+def shallow_water_pair_from_dataset(dataset, offset=0):
+    if shallow_water_single_sample_shape(dataset.shape):
+        return shallow_water_pair_from_array(dataset[()], 0)
+    return shallow_water_pair_from_array(dataset[offset], 0)
+
+
+def shallow_water_single_sample_shape(shape):
+    if len(shape) == 3:
+        return True
+    if len(shape) == 4:
+        return shape[-1] in (1, 3) or (shape[1] in (1, 3) and shape[-1] == shape[-2])
+    return False
+
+
+def shallow_water_frame(sample, time_index):
+    sample = np.asarray(sample)
+    if sample.ndim == 3:
+        if sample.shape[0] == sample.shape[1] and sample.shape[2] != sample.shape[1]:
+            return np.expand_dims(sample[:, :, time_index], axis = 0)
+        return np.expand_dims(sample[time_index, :, :], axis = 0)
+    if sample.ndim == 4:
+        if sample.shape[-1] in (1, 3):
+            if sample.shape[0] == sample.shape[1] and sample.shape[2] != sample.shape[1]:
+                return np.moveaxis(sample[:, :, time_index, :], -1, 0)
+            return np.moveaxis(sample[time_index, :, :, :], -1, 0)
+        if sample.shape[1] in (1, 3):
+            return sample[time_index, :, :, :]
+        if sample.shape[0] in (1, 3):
+            return sample[:, time_index, :, :]
+    raise ValueError(f"Cannot infer shallow_water frame from shape={sample.shape}")
+
+
 def generate_shallow_water(config):
     """Generate non-bounded NS equation."""
     ############################ Load data and network ############################
@@ -45,21 +106,20 @@ def generate_shallow_water(config):
     device = config['generate']['device']
     obs_size = config['data']['obs_size']
     
-    data = {}
+    data = []
     with h5py.File(datapath, "r") as f:
-        for k in list(f.keys()):
-            group = f[k]['data'] # type: ignore
-            h0 = np.expand_dims(group['h'][0, :, :, 0], axis = 0) # type: ignore
-            h = np.expand_dims(group['h'][-1, :, :, 0], axis = 0) # type: ignore
-            if 'hu' in group and 'hv' in group:
-                hu0 = np.expand_dims(group['hu'][0, :, :, 0], axis = 0) # type: ignore
-                hu = np.expand_dims(group['hu'][-1, :, :, 0], axis = 0) # type: ignore
-                hv0 = np.expand_dims(group['hv'][0, :, :, 0], axis = 0) # type: ignore
-                hv = np.expand_dims(group['hv'][-1, :, :, 0], axis = 0) # type: ignore
-                data[k] = np.stack([h0, hu0, hv0, h, hu, hv], axis = 1)
-            else:
-                data[k] = np.stack([h0, h], axis = 1)
-    data = torch.tensor(np.concatenate(list(data.values()), axis=0)).to(torch.float32)
+        if 'data' in f and isinstance(f['data'], h5py.Dataset):
+            data.append(shallow_water_pair_from_dataset(f['data'], offset))
+        else:
+            for k in list(f.keys()):
+                if not isinstance(f[k], h5py.Group) or 'data' not in f[k]:
+                    continue
+                group = f[k]['data'] # type: ignore
+                data.append(shallow_water_pair_from_group(group))
+    if not data:
+        raise KeyError(f"{datapath} must contain shallow-water sample groups or a root data dataset")
+    data = torch.tensor(np.stack(data, axis=0)).to(torch.float32)
+    offset = 0 if len(data) == 1 else offset
 
     state_channels = data.shape[1] // 2
     a_GT = data[offset, :state_channels, :, :]

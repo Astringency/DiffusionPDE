@@ -212,22 +212,82 @@ def read_scalar(file, data_cfg, name, aliases, offset, default):
 def load_shallow_water_gt(path, offset):
     pairs = []
     with h5py.File(path, "r") as file:
+        if "data" in file and isinstance(file["data"], h5py.Dataset):
+            pair = shallow_water_pair_from_dataset(file["data"], offset)
+            params = attr_params(file, None, ("g", "eps", "T", "total_time", "dt"))
+            channels = pair.shape[0] // 2
+            return as_bchw(pair[:channels]), as_bchw(pair[channels:]), params
         for key in sorted(file.keys()):
+            if not isinstance(file[key], h5py.Group) or "data" not in file[key]:
+                continue
             sample = file[key]
             group = sample["data"]
             params = attr_params(file, sample, ("g", "eps", "T", "total_time", "dt"))
-            h0 = group["h"][0, :, :, 0]
-            h = group["h"][-1, :, :, 0]
-            if "hu" in group and "hv" in group:
-                hu0 = group["hu"][0, :, :, 0]
-                hu = group["hu"][-1, :, :, 0]
-                hv0 = group["hv"][0, :, :, 0]
-                hv = group["hv"][-1, :, :, 0]
-                pairs.append((np.stack([h0, hu0, hv0], axis=0), np.stack([h, hu, hv], axis=0), params))
-            else:
-                pairs.append((h0[None], h[None], params))
+            pair = shallow_water_pair_from_group(group)
+            channels = pair.shape[0] // 2
+            pairs.append((pair[:channels], pair[channels:], params))
     coef, sol, params = pairs[offset]
     return as_bchw(coef), as_bchw(sol), params
+
+
+def shallow_water_pair_from_group(group):
+    h0 = np.expand_dims(group["h"][0, :, :, 0], axis=0)
+    h = np.expand_dims(group["h"][-1, :, :, 0], axis=0)
+    if "hu" in group and "hv" in group:
+        hu0 = np.expand_dims(group["hu"][0, :, :, 0], axis=0)
+        hu = np.expand_dims(group["hu"][-1, :, :, 0], axis=0)
+        hv0 = np.expand_dims(group["hv"][0, :, :, 0], axis=0)
+        hv = np.expand_dims(group["hv"][-1, :, :, 0], axis=0)
+        return np.concatenate([h0, hu0, hv0, h, hu, hv], axis=0)
+    return np.concatenate([h0, h], axis=0)
+
+
+def shallow_water_pair_from_dataset(dataset, offset=0):
+    if shallow_water_single_sample_shape(dataset.shape):
+        return shallow_water_pair_from_array(dataset[()], 0)
+    return shallow_water_pair_from_array(dataset[offset], 0)
+
+
+def shallow_water_pair_from_array(arr, offset=0):
+    arr = np.asarray(arr)
+    if arr.ndim == 5:
+        sample = arr[offset]
+    elif arr.ndim == 4:
+        if arr.shape[-1] in (1, 3) or (arr.shape[1] in (1, 3) and arr.shape[-1] == arr.shape[-2]):
+            sample = arr
+        else:
+            sample = arr[offset]
+    elif arr.ndim == 3:
+        sample = arr
+    else:
+        raise ValueError(f"Cannot infer shallow_water sample from shape={arr.shape}")
+    return np.concatenate([shallow_water_frame(sample, 0), shallow_water_frame(sample, -1)], axis=0)
+
+
+def shallow_water_single_sample_shape(shape):
+    if len(shape) == 3:
+        return True
+    if len(shape) == 4:
+        return shape[-1] in (1, 3) or (shape[1] in (1, 3) and shape[-1] == shape[-2])
+    return False
+
+
+def shallow_water_frame(sample, time_index):
+    sample = np.asarray(sample)
+    if sample.ndim == 3:
+        if sample.shape[0] == sample.shape[1] and sample.shape[2] != sample.shape[1]:
+            return np.expand_dims(sample[:, :, time_index], axis=0)
+        return np.expand_dims(sample[time_index, :, :], axis=0)
+    if sample.ndim == 4:
+        if sample.shape[-1] in (1, 3):
+            if sample.shape[0] == sample.shape[1] and sample.shape[2] != sample.shape[1]:
+                return np.moveaxis(sample[:, :, time_index, :], -1, 0)
+            return np.moveaxis(sample[time_index, :, :, :], -1, 0)
+        if sample.shape[1] in (1, 3):
+            return sample[time_index, :, :, :]
+        if sample.shape[0] in (1, 3):
+            return sample[:, time_index, :, :]
+    raise ValueError(f"Cannot infer shallow_water frame from shape={sample.shape}")
 
 
 def load_reaction_diffusion_gt(path, offset):

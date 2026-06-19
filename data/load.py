@@ -527,6 +527,66 @@ class PDEloader:
             return scalar.decode("utf-8") if isinstance(scalar, bytes) else str(scalar)
         return [item.decode("utf-8") if isinstance(item, bytes) else str(item) for item in arr.reshape(-1)]
 
+    @staticmethod
+    def _shallow_water_pair_from_group(group):
+        h0 = np.expand_dims(group['h'][0, :, :, 0], axis = 0) # type: ignore
+        h = np.expand_dims(group['h'][-1, :, :, 0], axis = 0) # type: ignore
+        if 'hu' in group and 'hv' in group:
+            hu0 = np.expand_dims(group['hu'][0, :, :, 0], axis = 0) # type: ignore
+            hu = np.expand_dims(group['hu'][-1, :, :, 0], axis = 0) # type: ignore
+            hv0 = np.expand_dims(group['hv'][0, :, :, 0], axis = 0) # type: ignore
+            hv = np.expand_dims(group['hv'][-1, :, :, 0], axis = 0) # type: ignore
+            return np.concatenate([h0, hu0, hv0, h, hu, hv], axis = 0)
+        return np.concatenate([h0, h], axis = 0)
+
+    @staticmethod
+    def _shallow_water_pair_from_dataset(dataset, offset=0):
+        if PDEloader._shallow_water_single_sample_shape(dataset.shape):
+            return PDEloader._shallow_water_pair_from_array(dataset[()], 0)
+        return PDEloader._shallow_water_pair_from_array(dataset[offset], 0)
+
+    @staticmethod
+    def _shallow_water_pair_from_array(arr, offset=0):
+        arr = np.asarray(arr)
+        if arr.ndim == 5:
+            sample = arr[offset]
+        elif arr.ndim == 4:
+            if arr.shape[-1] in (1, 3) or (arr.shape[1] in (1, 3) and arr.shape[-1] == arr.shape[-2]):
+                sample = arr
+            else:
+                sample = arr[offset]
+        elif arr.ndim == 3:
+            sample = arr
+        else:
+            raise ValueError(f"Cannot infer shallow_water sample from shape={arr.shape}")
+        return np.concatenate([PDEloader._shallow_water_frame(sample, 0), PDEloader._shallow_water_frame(sample, -1)], axis = 0)
+
+    @staticmethod
+    def _shallow_water_single_sample_shape(shape):
+        if len(shape) == 3:
+            return True
+        if len(shape) == 4:
+            return shape[-1] in (1, 3) or (shape[1] in (1, 3) and shape[-1] == shape[-2])
+        return False
+
+    @staticmethod
+    def _shallow_water_frame(sample, time_index):
+        sample = np.asarray(sample)
+        if sample.ndim == 3:
+            if sample.shape[0] == sample.shape[1] and sample.shape[2] != sample.shape[1]:
+                return np.expand_dims(sample[:, :, time_index], axis = 0)
+            return np.expand_dims(sample[time_index, :, :], axis = 0)
+        if sample.ndim == 4:
+            if sample.shape[-1] in (1, 3):
+                if sample.shape[0] == sample.shape[1] and sample.shape[2] != sample.shape[1]:
+                    return np.moveaxis(sample[:, :, time_index, :], -1, 0)
+                return np.moveaxis(sample[time_index, :, :, :], -1, 0)
+            if sample.shape[1] in (1, 3):
+                return sample[time_index, :, :, :]
+            if sample.shape[0] in (1, 3):
+                return sample[:, time_index, :, :]
+        raise ValueError(f"Cannot infer shallow_water frame from shape={sample.shape}")
+
     def _shallow_water_load(self, data_path, size=DEFAULT_TRAIN_SHARDS, max_samples=None):
         dataset = []
         sample_count = 0
@@ -534,20 +594,28 @@ class PDEloader:
             file_path = self._legacy_path(data_path, f"2d_swe_128_128_10_{i}.h5")
 
             with h5py.File(file_path, "r") as f:
+                if 'data' in f and isinstance(f['data'], h5py.Dataset):
+                    data_count = 1 if self._shallow_water_single_sample_shape(f['data'].shape) else f['data'].shape[0]
+                    for local_idx in range(data_count):
+                        if max_samples is not None and sample_count >= max_samples:
+                            break
+                        dataset.append(np.expand_dims(self._shallow_water_pair_from_dataset(f['data'], local_idx), axis=0))
+                        sample_count += 1
+                    if max_samples is not None and sample_count >= max_samples:
+                        break
+                    continue
                 for k in list(f.keys()):
                     if max_samples is not None and sample_count >= max_samples:
                         break
-                    h0 = np.expand_dims(f[k]['data']['h'][0, :, :, 0], axis = 0) # type: ignore
-                    h = np.expand_dims(f[k]['data']['h'][-1, :, :, 0], axis = 0) # type: ignore
-                    hu0 = np.expand_dims(f[k]['data']['hu'][0, :, :, 0], axis = 0) # type: ignore
-                    hu = np.expand_dims(f[k]['data']['hu'][-1, :, :, 0], axis = 0) # type: ignore
-                    hv0 = np.expand_dims(f[k]['data']['hv'][0, :, :, 0], axis = 0) # type: ignore
-                    hv = np.expand_dims(f[k]['data']['hv'][-1, :, :, 0], axis = 0) # type: ignore
-                    dataset.append(np.stack([h0, hu0, hv0, h, hu, hv], axis=1))
+                    if not isinstance(f[k], h5py.Group) or 'data' not in f[k]:
+                        continue
+                    dataset.append(np.expand_dims(self._shallow_water_pair_from_group(f[k]['data']), axis=0)) # type: ignore
                     sample_count += 1
             if max_samples is not None and sample_count >= max_samples:
                 break
 
+        if not dataset:
+            raise FileNotFoundError(f"No shallow_water samples were loaded from {data_path}")
         return self._finalize(np.concatenate(dataset, axis=0))
 
     def _heat_load(self, data_path, size=DEFAULT_TRAIN_SHARDS, split="train", max_samples=None):
