@@ -19,7 +19,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT_DIR}"
 
-DEFAULT_DATA_ROOT="/large_storage/zhangxf/PDEdata"
+DEFAULT_DATA_ROOT="/data0/zhangxf/PDEdata"
 DATA_ROOT="${DATA_ROOT:-${DEFAULT_DATA_ROOT}}"
 DATA_ROOT="${DATA_ROOT%/}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-outputs/checkrun}"

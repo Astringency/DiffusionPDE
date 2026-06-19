@@ -1,5 +1,7 @@
 output/pretrained/*
+output/checkrun/*
 
 __pycache__/
 .ipynb_checkpoints
 *.pyc
+outputs/
