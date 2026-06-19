@@ -5,6 +5,7 @@ from .generate_helmholtz import generate_helmholtz
 from .generate_ns_nonbounded import generate_ns_nonbounded
 from .generate_ns_bounded import generate_ns_bounded
 from .generate_shallow_water import generate_shallow_water
+from .generate_reaction_diffusion import generate_reaction_diffusion
 from .generate_heat import generate_heat
 from .generate_wave import generate_wave
 from .generate_advection_diffusion import generate_advection_diffusion

@@ -25,8 +25,8 @@ def random_index(k, grid_size, seed=0, device=torch.device('cuda')):
 
 def generate_shallow_water_loss(a, u, a_GT, u_GT, a_mask, u_mask, resolution, device=torch.device('cuda')):
     "Generate observation loss"
-    a_GT = a_GT.view(1, 1, resolution, resolution)
-    u_GT = u_GT.view(1, 1, resolution, resolution)
+    a_GT = a_GT.view(1, a.shape[1], resolution, resolution)
+    u_GT = u_GT.view(1, u.shape[1], resolution, resolution)
     observation_loss_a = (a - a_GT).squeeze()
     observation_loss_a = observation_loss_a * a_mask  
     observation_loss_u = (u - u_GT).squeeze()
@@ -48,14 +48,23 @@ def generate_shallow_water(config):
     data = {}
     with h5py.File(datapath, "r") as f:
         for k in list(f.keys()):
-            u0 = np.expand_dims(f[k]['data']['h'][0, :, :, 0], axis = 0) # type: ignore
-            u = np.expand_dims(f[k]['data']['h'][-1, :, :, 0], axis = 0) # type: ignore
-            data[k] = np.stack([u0, u], axis = 1)
+            group = f[k]['data'] # type: ignore
+            h0 = np.expand_dims(group['h'][0, :, :, 0], axis = 0) # type: ignore
+            h = np.expand_dims(group['h'][-1, :, :, 0], axis = 0) # type: ignore
+            if 'hu' in group and 'hv' in group:
+                hu0 = np.expand_dims(group['hu'][0, :, :, 0], axis = 0) # type: ignore
+                hu = np.expand_dims(group['hu'][-1, :, :, 0], axis = 0) # type: ignore
+                hv0 = np.expand_dims(group['hv'][0, :, :, 0], axis = 0) # type: ignore
+                hv = np.expand_dims(group['hv'][-1, :, :, 0], axis = 0) # type: ignore
+                data[k] = np.stack([h0, hu0, hv0, h, hu, hv], axis = 1)
+            else:
+                data[k] = np.stack([h0, h], axis = 1)
     data = torch.tensor(np.concatenate(list(data.values()), axis=0)).to(torch.float32)
 
-    a_GT = data[offset, 0, :, :]
+    state_channels = data.shape[1] // 2
+    a_GT = data[offset, :state_channels, :, :]
     a_GT = torch.tensor(a_GT, dtype=torch.float64, device=device)
-    u_GT = data[offset, 1, :, :]
+    u_GT = data[offset, state_channels:, :, :]
     u_GT = torch.tensor(u_GT, dtype=torch.float64, device=device)
     
     batch_size = config['generate']['batch_size']
@@ -66,6 +75,10 @@ def generate_shallow_water(config):
     print(f'Loading networks from "{network_pkl}"...')
     f = open(network_pkl, 'rb')
     net = pickle.load(f)['ema'].to(device)
+    if net.img_channels // 2 < state_channels:
+        state_channels = net.img_channels // 2
+        a_GT = a_GT[:state_channels]
+        u_GT = u_GT[:state_channels]
     
     ############################ Set up EDM latent ############################
     print(f'Generating {batch_size} samples...')
@@ -114,8 +127,8 @@ def generate_shallow_water(config):
             x_next = x_cur + (sigma_t_next - sigma_t) * (0.5 * d_cur + 0.5 * d_prime)
         
         # Scale the data back
-        a_N = x_N[:,0,:,:].unsqueeze(0)
-        u_N = x_N[:,1,:,:].unsqueeze(0)
+        a_N = x_N[:,:state_channels,:,:]
+        u_N = x_N[:,state_channels:state_channels * 2,:,:]
         a_N = a_N.to(torch.float64)
         u_N = u_N.to(torch.float64)
         
@@ -139,8 +152,8 @@ def generate_shallow_water(config):
         else:
             x_next = x_next
 
-        a_eval = x_next[:,0,:,:].unsqueeze(0)
-        u_eval = x_next[:,1,:,:].unsqueeze(0)
+        a_eval = x_next[:,:state_channels,:,:]
+        u_eval = x_next[:,state_channels:state_channels * 2,:,:]
         a_eval = a_eval.to(torch.float64)
         u_eval = u_eval.to(torch.float64)
         re_a_eval = torch.norm(a_eval - a_GT, 2) / torch.norm(a_GT, 2)
@@ -154,8 +167,8 @@ def generate_shallow_water(config):
     
     ############################ Save the data ############################
     x_final = x_next
-    a_final = x_final[:,0,:,:].unsqueeze(0)
-    u_final = x_final[:,1,:,:].unsqueeze(0)
+    a_final = x_final[:,:state_channels,:,:]
+    u_final = x_final[:,state_channels:state_channels * 2,:,:]
     a_final = a_final.to(torch.float64)
     u_final = u_final.to(torch.float64)
 
@@ -171,7 +184,7 @@ def generate_shallow_water(config):
     # Save and return the results
     if config['output']['save']:
         # Save results
-        with open(f'{config['output']['file_path']}/{config['generate']['problem']}/{config['data']['name']}_{offset}_results.pkl', 'wb') as f:
+        with open(f"{config['output']['file_path']}/{config['generate']['problem']}/{config['data']['name']}_{offset}_results.pkl", 'wb') as f:
             pickle.dump({
                 'obs_index': {'known_index_a': known_index_a, 'known_index_u': known_index_u},
                 'coef_final': a_final,

@@ -133,7 +133,7 @@ def generate_burgers(config):
     # Save and return the results
     if config['output']['save']:
         # Save results
-        with open(f'{config['output']['file_path']}/{config['generate']['problem']}{config['data']['name']}_{offset}_results.pkl', 'wb') as f:
+        with open(f"{config['output']['file_path']}/{config['generate']['problem']}/{config['data']['name']}_{offset}_results.pkl", 'wb') as f:
             pickle.dump({
                 'obs_index': {'known_sensor': selected_index},
                 'x_final': x_final,

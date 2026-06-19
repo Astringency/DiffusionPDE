@@ -174,7 +174,7 @@ def generate_darcy(config):
     # Save and return the results
     if config['output']['save']:
         # Save results
-        with open(f'{config['output']['file_path']}/{config['generate']['problem']}/{config['data']['name']}_{setup_file_name}_results.pkl', 'wb') as f:
+        with open(f"{config['output']['file_path']}/{config['generate']['problem']}/{config['data']['name']}_{setup_file_name}_results.pkl", 'wb') as f:
             pickle.dump({
                 'obs_index': {'known_index_a': known_index_a, 'known_index_u': known_index_u},
                 'coef_final': a_final,

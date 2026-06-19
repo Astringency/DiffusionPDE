@@ -233,13 +233,34 @@ def load_shallow_water_gt(path, offset):
 def load_reaction_diffusion_gt(path, offset):
     with h5py.File(path, "r") as file:
         sample_keys = sorted(key for key in file.keys() if isinstance(file[key], h5py.Group) and "data" in file[key])
-        sample = file[sample_keys[offset]]
-        arr = np.asarray(sample["data"])
-        params = reaction_diffusion_params(file, sample)
-    init_idx = 50 if Path(path).name == "2D_diff-react_NA_NA.h5" and arr.shape[0] > 50 else 0
-    coef = np.stack([arr[init_idx, :, :, 0], arr[init_idx, :, :, 1]], axis=0)
-    sol = np.stack([arr[-1, :, :, 0], arr[-1, :, :, 1]], axis=0)
+        if sample_keys:
+            sample = file[sample_keys[offset]]
+            arr = np.asarray(sample["data"])
+            params = reaction_diffusion_params(file, sample)
+            init_idx = 50 if Path(path).name == "2D_diff-react_NA_NA.h5" and arr.shape[0] > 50 else 0
+            coef = np.stack([arr[init_idx, :, :, 0], arr[init_idx, :, :, 1]], axis=0)
+            sol = np.stack([arr[-1, :, :, 0], arr[-1, :, :, 1]], axis=0)
+        elif "u" in file and "v" in file:
+            u_data = np.asarray(file["u"])
+            v_data = np.asarray(file["v"])
+            params = reaction_diffusion_params(file, None)
+            coef = np.stack([reaction_diffusion_frame(u_data, offset, 0), reaction_diffusion_frame(v_data, offset, 0)], axis=0)
+            sol = np.stack([reaction_diffusion_frame(u_data, offset, -1), reaction_diffusion_frame(v_data, offset, -1)], axis=0)
+        else:
+            raise KeyError(f"{path} must contain sample groups with data or root u/v datasets")
     return as_bchw(coef), as_bchw(sol), params
+
+
+def reaction_diffusion_frame(arr, offset, time_index):
+    sample = np.asarray(arr[offset])
+    if sample.ndim == 2:
+        return sample
+    if sample.ndim == 3:
+        if sample.shape[0] == sample.shape[1]:
+            return sample[:, :, time_index]
+        if sample.shape[1] == sample.shape[2]:
+            return sample[time_index, :, :]
+    raise ValueError(f"Cannot infer reaction_diffusion frame from shape={sample.shape}")
 
 
 def reaction_diffusion_params(file, sample):
@@ -266,7 +287,7 @@ def reaction_diffusion_params(file, sample):
         ("x_range", "x_left", "x_right"),
         ("y_range", "y_bottom", "y_top"),
     ):
-        if range_name not in sample.attrs and range_name not in file.attrs:
+        if (sample is None or range_name not in sample.attrs) and range_name not in file.attrs:
             continue
         values = attr_value(file, sample, range_name)
         values = np.asarray(values, dtype=np.float64).reshape(-1)
@@ -286,7 +307,7 @@ def attr_params(file, sample, names):
 
 
 def attr_value(file, sample, name):
-    if name in sample.attrs:
+    if sample is not None and name in sample.attrs:
         return sample.attrs[name]
     if name in file.attrs:
         return file.attrs[name]
@@ -314,7 +335,7 @@ def result_states(result, pde, expected_coef=None, expected_sol=None):
 
 
 def as_bchw(value, expected_channels=None):
-    tensor = torch.as_tensor(np.asarray(value), dtype=torch.float64)
+    tensor = torch.as_tensor(as_numpy(value), dtype=torch.float64)
     while tensor.ndim > 4 and tensor.shape[0] == 1:
         tensor = tensor.squeeze(0)
     if tensor.ndim == 2:
@@ -357,7 +378,7 @@ def mask_from_value(value, reference):
         return None
     if value is None:
         return torch.ones_like(reference[:, :1])
-    mask = torch.as_tensor(np.asarray(value), dtype=reference.dtype)
+    mask = torch.as_tensor(as_numpy(value), dtype=reference.dtype)
     if mask.ndim == 2:
         mask = mask.unsqueeze(0).unsqueeze(0)
     elif mask.ndim == 3:
@@ -365,6 +386,12 @@ def mask_from_value(value, reference):
     if mask.shape[0] == 1 and reference.shape[0] > 1:
         mask = mask.repeat(reference.shape[0], 1, 1, 1)
     return mask
+
+
+def as_numpy(value):
+    if isinstance(value, torch.Tensor):
+        return value.detach().cpu().numpy()
+    return np.asarray(value)
 
 
 def compute_metrics(config_path, result_path, output_dir=None, offset=None, problem=None):
@@ -445,6 +472,8 @@ def compute_pde_residual(pde, coef, sol, params, config):
     if pde == "reaction_diffusion":
         return reaction_diffusion_residual(coef, sol, params)
     if pde == "shallow_water":
+        if coef.shape[1] != 3 or sol.shape[1] != 3:
+            return None
         return shallow_water_residual(coef, sol, params)
     if pde == "heat":
         alpha = param_field(params, "alpha", sol, 1.0)

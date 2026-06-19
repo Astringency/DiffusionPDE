@@ -50,6 +50,9 @@ if __name__ == "__main__":
         elif name == 'Shallow-water':
             print('Solving Shallow Water equation...')
             generate_shallow_water(config)
+        elif name == 'Reaction-Diffusion' or name == 'reaction_diffusion':
+            print('Solving Reaction Diffusion equation...')
+            generate_reaction_diffusion(config)
         elif name == 'Heat':
             print('Solving Heat equation...')
             generate_heat(config)
