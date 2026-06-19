@@ -1,0 +1,27 @@
+data:
+  name: 'Wave'
+  datapath: '/large_storage/zhangxf/PDEdata/wave/wave_test_1000-128-128.h5'
+  offset: 0
+  obs_size: 500
+
+test:
+  pre-trained: '/research_data/users/zhangxifeng/C01Python/DiffusionPDE/output/pretrained/pretrained-wave.pkl'
+  iterations: 2000
+
+generate:
+  seed: 0
+  device: 'cuda'
+  batch_size: 1
+  sigma_min: 0.002
+  sigma_max: 80
+  rho: 7
+  zeta_obs_a: 1
+  zeta_obs_u: 1
+  zeta_pde: 1
+  guide: True
+  full: False
+
+output:
+  file_path: '/research_data/users/zhangxifeng/C01Python/Eval/DeepLearning4PDE/samples/DiffusionPDE/'
+  save: True
+  return: False
