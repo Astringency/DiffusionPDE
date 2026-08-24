@@ -34,7 +34,7 @@ PDE_LIST="${PDE_LIST:-poisson helmholtz darcy nsnonbounded burger}"
 TASK_LIST="${TASK_LIST:-forward inverse both}"
 OUTPUT_DIR="${OUTPUT_DIR:-outputs/MAIN1000_100}"
 CONFIG_DIR="${CONFIG_DIR:-configs}"
-DATA_ROOT="${DATA_ROOT:-}"
+DATA_ROOT="${DATA_ROOT:-/data0/zhangxf/PDEdata}"
 CHECKPOINT_ROOT="${CHECKPOINT_ROOT:-/data0/zhangxf/Models/pretrained-models}"
 DEVICE="${DEVICE:-cuda}"
 DEVICE_LIST="${DEVICE_LIST:-${DEVICE}}"
@@ -109,11 +109,11 @@ default_data_path() {
     local pde="$1"
     [[ -n "${DATA_ROOT}" ]] || return 0
     case "${pde}" in
-        poisson) printf '%s\n' "${DATA_ROOT%/}/test1125/poisson_test_1000-128-128.mat" ;;
-        helmholtz) printf '%s\n' "${DATA_ROOT%/}/test1125/helmholtz_test_1000-128-128-k1.mat" ;;
-        darcy) printf '%s\n' "${DATA_ROOT%/}/test1125/darcy_test_1000-128-128.mat" ;;
-        nsnonbounded) printf '%s\n' "${DATA_ROOT%/}/test1125/nsnonbounded_1000-128-128-10_1.mat" ;;
-        burger) printf '%s\n' "${DATA_ROOT%/}/burgers/burger_10000-128-128_1.mat" ;;
+        poisson) printf '%s\n' "${DATA_ROOT%/}/poisson/poisson_test_10000-128-128.mat" ;;
+        helmholtz) printf '%s\n' "${DATA_ROOT%/}/helmholtz/helmholtz_test_10000-128-128.mat" ;;
+        darcy) printf '%s\n' "${DATA_ROOT%/}/darcy/darcy_test_10000-128-128.mat" ;;
+        nsnonbounded) printf '%s\n' "${DATA_ROOT%/}/nsnonbounded/nsnonbounded_test_10000-128-128-10.mat" ;;
+        burger) printf '%s\n' "${DATA_ROOT%/}/burger/burger_test_10000-128-128.mat" ;;
     esac
 }
 
