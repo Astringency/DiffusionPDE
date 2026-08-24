@@ -145,7 +145,7 @@ def generate_helmholtz(config):
         a_eval = x_next[:,0,:,:].unsqueeze(0)
         u_eval= x_next[:,1,:,:].unsqueeze(0)
         a_eval= (a_eval*2.15).to(torch.float64)
-        u_eval= (u_eval/0.028).to(torch.float64)
+        u_eval= (u_eval*0.028).to(torch.float64)
         re_a_eval = torch.norm(a_eval - a_GT, 2) / torch.norm(a_GT, 2)
         re_u_eval = torch.norm(u_eval - u_GT, 2) / torch.norm(u_GT, 2)
 
