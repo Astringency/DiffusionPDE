@@ -7,6 +7,7 @@ if __name__ == "__main__":
     parser.add_argument('--config', type=str, help='Path to config file')
     parser.add_argument('--problem', type=str, default = "both", help='Problem to solve')
     parser.add_argument('--batch', type=int, default = 1, help='Sample size')
+    parser.add_argument('--start_offset', type=int, default = 0, help='First dataset offset to sample')
     parser.add_argument('--step_size', type=int, default = 2000, help='step size')
     options = parser.parse_args()
     config_path = options.config
@@ -25,8 +26,9 @@ if __name__ == "__main__":
     config['test']['iterations'] = options.step_size
 
     batch = options.batch
+    start_offset = options.start_offset
 
-    for i in range(batch):
+    for i in range(start_offset, start_offset + batch):
         config['data']['offset'] = i
 
         if name == 'Burgers':

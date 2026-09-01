@@ -233,6 +233,8 @@ run_job() {
     local metrics_dir="${METRICS_DIR}/${pde}/${task}"
     local log_path="${LOG_DIR}/${pde}_${task}.log"
     local existing=0
+    local start_offset=0
+    local sample_count="${NUM_SAMPLES}"
 
     mkdir -p "${result_dir}" "${metrics_dir}" "${LOG_DIR}"
     if is_true "${RESUME}"; then
@@ -248,10 +250,16 @@ run_job() {
         if is_true "${RESUME}" && (( existing >= NUM_SAMPLES )); then
             echo "[${pde}/${task}] sampling skipped: found ${existing} result files"
         else
+            if is_true "${RESUME}" && (( existing > 0 )); then
+                start_offset="${existing}"
+                sample_count="$((NUM_SAMPLES - existing))"
+                echo "[${pde}/${task}] sampling resumed: found ${existing} result files; starting at offset ${start_offset}"
+            fi
             if ! "${PYTHON_BIN}" -u generate_pde.py \
                 --config="${config}" \
                 --problem="${task}" \
-                --batch="${NUM_SAMPLES}" \
+                --batch="${sample_count}" \
+                --start_offset="${start_offset}" \
                 --step_size="${NUM_STEPS}"; then
                 echo "[${pde}/${task}] sampling failed" >&2
                 exit 1
