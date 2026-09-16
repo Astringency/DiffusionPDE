@@ -13,6 +13,9 @@ from typing import Any
 GROUP_KEYS = [
     "pde",
     "problem",
+    "sensor_mode",
+    "num_observations",
+    "num_steps",
     "offset",
 ]
 

@@ -6,8 +6,8 @@ set -euo pipefail
 # Defaults:
 #   - Poisson, Helmholtz, Darcy, and non-bounded Navier-Stokes
 #     run forward, inverse, and both tasks.
-#   - Burgers runs the both task because its sampler observes sensor columns
-#     over the complete space-time solution instead of separate a/u fields.
+#   - Burgers runs both with 500 random space-time points and five complete
+#     time slices, saved as separate jobs over the full trajectory.
 #   - Each PDE/task job samples offsets [0, NUM_SAMPLES).
 #
 # Examples:
@@ -30,6 +30,10 @@ cd "${ROOT_DIR}"
 NUM_SAMPLES="${NUM_SAMPLES:-1000}"
 NUM_STEPS="${NUM_STEPS:-100}"
 NUM_OBS="${NUM_OBS:-500}"
+BURGER_SENSOR_MODES="${BURGER_SENSOR_MODES:-random time_slices}"
+BURGER_TIME_SLICES="${BURGER_TIME_SLICES:-5}"
+BURGER_MASK_SEED="${BURGER_MASK_SEED:-1}"
+BURGER_SAMPLE_SEED="${BURGER_SAMPLE_SEED:-${SAMPLE_SEED:-20260913}}"
 PDE_LIST="${PDE_LIST:-poisson helmholtz darcy nsnonbounded burger}"
 TASK_LIST="${TASK_LIST:-forward inverse both}"
 OUTPUT_DIR="${OUTPUT_DIR:-outputs/MAIN1000_100}"
@@ -142,6 +146,7 @@ prepare_config() {
     local base_config="$4"
     local run_config="$5"
     local sample_dir="$6"
+    local sensor_mode="$7"
     local data_path
     local checkpoint
 
@@ -152,13 +157,14 @@ prepare_config() {
 
     "${PYTHON_BIN}" - "${base_config}" "${run_config}" "${task}" "${sample_dir}" \
         "${device}" "${NUM_STEPS}" "${NUM_OBS}" "${SAMPLE_SEED}" \
-        "${data_path}" "${checkpoint}" <<'PY'
+        "${data_path}" "${checkpoint}" "${sensor_mode}" \
+        "${BURGER_TIME_SLICES}" "${BURGER_MASK_SEED}" "${BURGER_SAMPLE_SEED}" <<'PY'
 import sys
 from pathlib import Path
 
 import yaml
 
-base, out, task, sample_dir, device, steps, obs, seed, data_path, checkpoint = sys.argv[1:]
+base, out, task, sample_dir, device, steps, obs, seed, data_path, checkpoint, sensor_mode, time_slices, mask_seed, burger_seed = sys.argv[1:]
 config = yaml.safe_load(Path(base).read_text(encoding="utf-8"))
 config.setdefault("data", {})
 config.setdefault("test", {})
@@ -173,6 +179,12 @@ config["test"]["iterations"] = int(steps)
 config["generate"]["device"] = device
 config["generate"]["batch_size"] = 1
 config["generate"]["seed"] = int(seed)
+if sensor_mode:
+    config["data"]["sensor_mode"] = sensor_mode
+    config["data"]["num_time_slices"] = int(time_slices)
+    config["data"]["mask_seed"] = int(mask_seed)
+    config["generate"]["seed"] = int(burger_seed)
+    config["generate"]["seed_per_sample"] = True
 config["generate"]["problem"] = task
 config["output"]["file_path"] = sample_dir
 config["output"]["save"] = True
@@ -229,9 +241,10 @@ run_job() {
     local device="$3"
     local config="$4"
     local sample_root="$5"
+    local sensor_mode="$6"
     local result_dir="${sample_root}/${task}"
-    local metrics_dir="${METRICS_DIR}/${pde}/${task}"
-    local log_path="${LOG_DIR}/${pde}_${task}.log"
+    local metrics_dir="${METRICS_DIR}/${pde}${sensor_mode:+/${sensor_mode}}/${task}"
+    local log_path="${LOG_DIR}/${pde}${sensor_mode:+_${sensor_mode}}_${task}.log"
     local existing=0
     local start_offset=0
     local sample_count="${NUM_SAMPLES}"
@@ -246,7 +259,7 @@ run_job() {
     fi
 
     {
-        echo "[${pde}/${task}] device=${device} samples=${NUM_SAMPLES} steps=${NUM_STEPS} obs=${NUM_OBS}"
+        echo "[${pde}/${task}] device=${device} samples=${NUM_SAMPLES} steps=${NUM_STEPS} layout=${sensor_mode:-random}"
         if is_true "${RESUME}" && (( existing >= NUM_SAMPLES )); then
             echo "[${pde}/${task}] sampling skipped: found ${existing} result files"
         else
@@ -282,6 +295,7 @@ run_job() {
 require_positive_integer NUM_SAMPLES "${NUM_SAMPLES}"
 require_positive_integer NUM_STEPS "${NUM_STEPS}"
 require_positive_integer NUM_OBS "${NUM_OBS}"
+require_positive_integer BURGER_TIME_SLICES "${BURGER_TIME_SLICES}"
 require_positive_integer MAX_PARALLEL_TASKS "${MAX_PARALLEL_TASKS}"
 if (( NUM_STEPS < 2 )); then
     echo "NUM_STEPS must be at least 2 for the EDM time-step schedule." >&2
@@ -303,6 +317,7 @@ JOB_TASKS=()
 JOB_DEVICES=()
 JOB_CONFIGS=()
 JOB_SAMPLE_ROOTS=()
+JOB_SENSOR_MODES=()
 job_index=0
 
 for pde in "${PDES[@]}"; do
@@ -318,8 +333,20 @@ for pde in "${PDES[@]}"; do
     fi
 
     pde_tasks=("${TASKS[@]}")
+    pde_modes=("")
     if [[ "${pde}" == "burger" ]]; then
         pde_tasks=(both)
+        read -r -a pde_modes <<< "${BURGER_SENSOR_MODES}"
+        if (( ${#pde_modes[@]} == 0 )); then
+            echo "BURGER_SENSOR_MODES must not be empty." >&2
+            exit 2
+        fi
+        for sensor_mode in "${pde_modes[@]}"; do
+            case "${sensor_mode}" in
+                random|time_slices|sensor_columns) ;;
+                *) echo "Unsupported Burgers sensor mode: ${sensor_mode}" >&2; exit 2 ;;
+            esac
+        done
     fi
 
     for task in "${pde_tasks[@]}"; do
@@ -327,16 +354,19 @@ for pde in "${PDES[@]}"; do
             forward|inverse|both) ;;
             *) echo "Unsupported task: ${task}" >&2; exit 2 ;;
         esac
-        device="${DEVICES[$((job_index % ${#DEVICES[@]}))]}"
-        run_config="${RUN_CONFIG_DIR}/${pde}_${task}.yaml"
-        sample_root="${OUTPUT_DIR}/samples/${pde}"
-        prepare_config "${pde}" "${task}" "${device}" "${base_config}" "${run_config}" "${sample_root}"
-        JOB_PDES+=("${pde}")
-        JOB_TASKS+=("${task}")
-        JOB_DEVICES+=("${device}")
-        JOB_CONFIGS+=("${run_config}")
-        JOB_SAMPLE_ROOTS+=("${sample_root}")
-        job_index=$((job_index + 1))
+        for sensor_mode in "${pde_modes[@]}"; do
+            device="${DEVICES[$((job_index % ${#DEVICES[@]}))]}"
+            run_config="${RUN_CONFIG_DIR}/${pde}${sensor_mode:+_${sensor_mode}}_${task}.yaml"
+            sample_root="${OUTPUT_DIR}/samples/${pde}${sensor_mode:+/${sensor_mode}}"
+            prepare_config "${pde}" "${task}" "${device}" "${base_config}" "${run_config}" "${sample_root}" "${sensor_mode}"
+            JOB_PDES+=("${pde}")
+            JOB_TASKS+=("${task}")
+            JOB_DEVICES+=("${device}")
+            JOB_CONFIGS+=("${run_config}")
+            JOB_SAMPLE_ROOTS+=("${sample_root}")
+            JOB_SENSOR_MODES+=("${sensor_mode}")
+            job_index=$((job_index + 1))
+        done
     done
 done
 
@@ -347,7 +377,7 @@ echo "  steps: ${NUM_STEPS}"
 echo "  observations: ${NUM_OBS}"
 echo "  output: ${OUTPUT_DIR}"
 for ((i = 0; i < ${#JOB_PDES[@]}; i++)); do
-    printf '  [%02d] %-14s %-7s %s\n' "$((i + 1))" "${JOB_PDES[i]}" "${JOB_TASKS[i]}" "${JOB_DEVICES[i]}"
+    printf '  [%02d] %-14s %-7s %-14s %s\n' "$((i + 1))" "${JOB_PDES[i]}" "${JOB_TASKS[i]}" "${JOB_SENSOR_MODES[i]}" "${JOB_DEVICES[i]}"
 done
 
 if is_true "${PLAN_ONLY}"; then
@@ -361,9 +391,9 @@ if is_true "${PARALLEL}"; then
     active_names=()
     for ((i = 0; i < ${#JOB_PDES[@]}; i++)); do
         run_job "${JOB_PDES[i]}" "${JOB_TASKS[i]}" "${JOB_DEVICES[i]}" \
-            "${JOB_CONFIGS[i]}" "${JOB_SAMPLE_ROOTS[i]}" &
+            "${JOB_CONFIGS[i]}" "${JOB_SAMPLE_ROOTS[i]}" "${JOB_SENSOR_MODES[i]}" &
         active_pids+=("$!")
-        active_names+=("${JOB_PDES[i]}/${JOB_TASKS[i]}")
+        active_names+=("${JOB_PDES[i]}/${JOB_SENSOR_MODES[i]}/${JOB_TASKS[i]}")
         if (( ${#active_pids[@]} >= MAX_PARALLEL_TASKS )); then
             if ! wait "${active_pids[0]}"; then
                 echo "Job failed: ${active_names[0]}" >&2
@@ -382,8 +412,8 @@ if is_true "${PARALLEL}"; then
 else
     for ((i = 0; i < ${#JOB_PDES[@]}; i++)); do
         if ! run_job "${JOB_PDES[i]}" "${JOB_TASKS[i]}" "${JOB_DEVICES[i]}" \
-            "${JOB_CONFIGS[i]}" "${JOB_SAMPLE_ROOTS[i]}"; then
-            echo "Job failed: ${JOB_PDES[i]}/${JOB_TASKS[i]}" >&2
+            "${JOB_CONFIGS[i]}" "${JOB_SAMPLE_ROOTS[i]}" "${JOB_SENSOR_MODES[i]}"; then
+            echo "Job failed: ${JOB_PDES[i]}/${JOB_SENSOR_MODES[i]}/${JOB_TASKS[i]}" >&2
             failures=$((failures + 1))
         fi
     done

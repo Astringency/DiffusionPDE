@@ -482,6 +482,11 @@ def compute_metrics(config_path, result_path, output_dir=None, offset=None, prob
         "pde_residual_norm": pde_residual_norm(residual),
         "pde_residual_available": residual is not None,
     }
+    if pde == "burger":
+        # Old result files were produced with spatial sensor columns.
+        row["sensor_mode"] = result.get("sensor_mode", "sensor_columns")
+        row["num_observations"] = int(sol_mask.sum().item())
+        row["num_steps"] = result.get("num_steps", config.get("test", {}).get("iterations"))
     if pred_coef is not None and gt_coef is not None:
         row.update(metric_block("a", pred_coef, gt_coef, coef_mask))
     if pred_sol is not None and gt_sol is not None:

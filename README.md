@@ -40,12 +40,31 @@ DEVICE_LIST="cuda:0 cuda:1" PARALLEL=true bash scripts/sampling/main/run.sh
 
 For Poisson, Helmholtz, Darcy and Navier–Stokes, this runs the Smooth comparisons
 at 100 and 1,000 steps, 1,000 inputs per task, and 500 observations per active field.
-The Burgers entry still uses five spatial sensor columns across all time levels.
-The paper's 500 random space–time points and five complete time slices were run
-through a separate study driver and are not yet integrated into this entry.
+Burgers runs both paper layouts at each budget: `random` selects 500 distinct
+space–time points; `time_slices` selects five complete physical time levels
+(640 values on the 128 × 128 trajectory). Both use the Smooth test set and
+evaluate the complete trajectory, including its initial time level.
 Outputs are separated by step budget under `outputs/main`; `OUTPUT_ROOT`
 changes that location. `run_sweep.sh` exposes one budget and supports explicit
 per-PDE data/checkpoint overrides. Completed results can be resumed.
+
+```bash
+# Burgers only: both layouts, at 100 and 1,000 steps.
+PDE_LIST=burger bash scripts/sampling/main/run.sh
+# Select one layout (omit PLAN_ONLY to sample).
+PDE_LIST=burger BURGER_SENSOR_MODES=random PLAN_ONLY=true bash scripts/sampling/main/run.sh
+```
+
+`configs/burgers.yaml` selects the single-run default with `data.sensor_mode`.
+`NUM_OBS` controls random points; `BURGER_TIME_SLICES` controls complete time levels.
+Masks use `BURGER_MASK_SEED=1`, the test filename and input offset, matching the
+baseline observations independently of device, batching and resume order.
+The Burgers latent seed is `BURGER_SAMPLE_SEED=20260913` plus the input offset;
+`SAMPLE_SEED` also overrides its base seed unless `BURGER_SAMPLE_SEED` is explicit.
+Results, logs and metrics are separated by layout. The native EDM update,
+guidance weights and observation-loss divisor (640 for both layouts) are retained.
+Older configs without `sensor_mode` retain spatial sensor columns; select
+`sensor_columns` explicitly to use that layout.
 
 ## Error–time trajectories
 

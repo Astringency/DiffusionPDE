@@ -1,6 +1,7 @@
 import tqdm
 import time
 import pickle
+from pathlib import Path
 import numpy as np
 import torch
 import PIL.Image
@@ -8,15 +9,7 @@ import dnnlib
 import torch.nn.functional as F
 from torch_utils import distributed as dist
 import scipy.io
-
-def random_sensor(k, grid_size, seed=0, device=torch.device('cuda')):
-    """Return a index list with k sensors randomly placed in a grid of size [grid_size, grid_size]."""
-    torch.manual_seed(seed)
-    index = torch.zeros(grid_size, grid_size, dtype=torch.float64, device=device)
-    known_index = torch.randperm(grid_size, device=device)[:k]
-    for i in known_index:
-        index[:, i]=1
-    return index
+from .burgers_observations import make_burgers_mask
 
 def get_burger_loss(u, u_GT, mask):
     """Return the loss of the Burgers' equation and the observation loss."""
@@ -48,19 +41,23 @@ def generate_burgers(config):
     offset = config['data']['offset']
     device = config['generate']['device']
     data = scipy.io.loadmat(datapath)
-    init_state = data['input']
-    init_state = torch.tensor(init_state, dtype=torch.float64, device=device)
     ground_truth = data['output'][offset, :, :]
     ground_truth = torch.tensor(ground_truth, dtype=torch.float64, device=device)
+    if ground_truth.shape != (128, 128):
+        raise ValueError('Burgers requires a complete (time, space) = (128, 128) trajectory')
     
     batch_size = config['generate']['batch_size']
-    seed = config['generate']['seed']
+    if batch_size != 1:
+        raise ValueError('Burgers uses generate.batch_size=1; use --batch for multiple inputs')
+    if config['test']['iterations'] < 2:
+        raise ValueError('Burgers EDM sampling requires at least 2 iterations')
+    seed = config['generate']['seed'] + (offset if config['generate'].get('seed_per_sample', False) else 0)
     torch.manual_seed(seed)
     
     network_pkl = config['test']['pre-trained']
     print(f'Loading networks from "{network_pkl}"...')
-    f = open(network_pkl, 'rb')
-    net = pickle.load(f)['ema'].to(device)
+    with open(network_pkl, 'rb') as f:
+        net = pickle.load(f)['ema'].to(device).eval().requires_grad_(False)
     
     ############################ Set up EDM latent ############################
     print(f'Generating {batch_size} samples...')
@@ -81,7 +78,7 @@ def generate_burgers(config):
     sigma_t_steps = torch.cat([net.round_sigma(sigma_t_steps), torch.zeros_like(sigma_t_steps[:1])]) # t_N = 0
     
     x_next = latents.to(torch.float64) * sigma_t_steps[0]
-    selected_index = random_sensor(5, 128, device=device)
+    selected_index = make_burgers_mask(config['data'], ground_truth.shape, device=device)
     
     ############################ Sample the data ############################
     time_start = time.time()
@@ -109,6 +106,8 @@ def generate_burgers(config):
         # Compute the loss
         pde_loss, observation_loss = get_burger_loss(x_N, ground_truth, selected_index)
         L_pde = torch.norm(pde_loss, 2)/(128*128)
+        # Preserve the paper's native guidance normalization for BOTH layouts,
+        # including random-500; changing this denominator changes the sampler.
         L_obs = torch.norm(observation_loss, 2)/(128*5)
         grad_x_cur_obs = torch.autograd.grad(outputs=L_obs, inputs=x_cur, retain_graph=True)[0]
         grad_x_cur_pde = torch.autograd.grad(outputs=L_pde, inputs=x_cur)[0]
@@ -139,9 +138,15 @@ def generate_burgers(config):
     # Save and return the results
     if config['output']['save']:
         # Save results
+        Path(config['output']['file_path'], config['generate']['problem']).mkdir(parents=True, exist_ok=True)
         with open(f"{config['output']['file_path']}/{config['generate']['problem']}/{config['data']['name']}_{offset}_results.pkl", 'wb') as f:
             pickle.dump({
-                'obs_index': {'known_sensor': selected_index},
+                'obs_index': {'known_sensor': selected_index.detach().cpu()},
+                'sensor_mode': config['data'].get('sensor_mode', 'sensor_columns'),
+                'num_observations': int(selected_index.sum().item()),
+                'sample_seed': seed,
+                'mask_seed': config['data'].get('mask_seed', 1) if config['data'].get('sensor_mode', 'sensor_columns') != 'sensor_columns' else 0,
+                'num_steps': num_steps,
                 'x_final': x_final,
                 'loss': loss,
                 'time': time_eval

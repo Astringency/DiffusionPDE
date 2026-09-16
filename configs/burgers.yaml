@@ -3,11 +3,15 @@ data:
   datapath: datasets/burgers/burger_test_10000-128-128_smooth.mat
   offset: 0
   obs_size: 500
+  sensor_mode: random  # random: 500 space-time points; time_slices: 5 complete time levels
+  num_time_slices: 5
+  mask_seed: 1
 test:
   pre-trained: output/pretrained/pretrained-burgers.pkl
   iterations: 100
 generate:
-  seed: 0
+  seed: 20260913
+  seed_per_sample: true
   device: cuda
   batch_size: 1
   sigma_min: 0.002
