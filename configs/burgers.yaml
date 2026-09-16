@@ -1,26 +1,23 @@
 data:
-  name: 'Burgers'
-  datapath: '/large_storage/zhangxf/PDEdata/burgers/burger_10000-128-128_1.mat'
+  name: Burgers
+  datapath: datasets/burgers/burger_test_10000-128-128_smooth.mat
   offset: 0
   obs_size: 500
-
 test:
-  pre-trained: '/research_data/users/zhangxifeng/C01Python/DiffusionPDE/output/pretrained/pretrained-burgers.pkl'
-  iterations: 2000
-
+  pre-trained: output/pretrained/pretrained-burgers.pkl
+  iterations: 100
 generate:
   seed: 0
-  device: 'cuda'
+  device: cuda
   batch_size: 1
   sigma_min: 0.002
   sigma_max: 80
   rho: 7
   zeta_obs: 320
   zeta_pde: 100
-  guide: True
-  full: False
-
+  guide: true
+  full: false
 output:
-  file_path: '/research_data/users/zhangxifeng/C01Python/Eval/DeepLearning4PDE/samples/DiffusionPDE/'
-  save: True
-  return: False
+  file_path: outputs/main
+  save: true
+  return: false

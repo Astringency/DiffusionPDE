@@ -1,20 +1,14 @@
 data:
-  name: 'Helmholtz'
-  datapath: '/large_storage/zhangxf/PDEdata/test1125/helmholtz_test_1000-128-128-k1.mat'
-  # datapath: '/large_storage/zhangxf/PDEdata/test1125/helmholtz_test_1000-128-128-k2.mat'
-  # datapath: '/large_storage/zhangxf/PDEdata/test1125/helmholtz_test_1000-128-128-k5.mat'
-  # datapath: '/large_storage/zhangxf/PDEdata/test1125/helmholtz_test_1000-128-128-k10.mat'
-  # datapath: '/large_storage/zhangxf/PDEdata/helmholtz/helmholtz_1000-128-128_test.mat'
+  name: Helmholtz
+  datapath: datasets/helmholtz/helmholtz_test_10000-128-128_smooth.mat
   offset: 0
   obs_size: 500
-
 test:
-  pre-trained: '/research_data/users/zhangxifeng/C01Python/DiffusionPDE/output/pretrained/pretrained-helmholtz.pkl'
-  iterations: 2000
-
+  pre-trained: output/pretrained/pretrained-helmholtz.pkl
+  iterations: 100
 generate:
   seed: 0
-  device: 'cuda'
+  device: cuda
   batch_size: 1
   sigma_min: 0.002
   sigma_max: 80
@@ -22,10 +16,9 @@ generate:
   zeta_obs_a: 400
   zeta_obs_u: 20000
   zeta_pde: 10
-  guide: True
-  full: False
-
+  guide: true
+  full: false
 output:
-  file_path: '/research_data/users/zhangxifeng/C01Python/Eval/DeepLearning4PDE/samples/DiffusionPDE/'
-  save: True
-  return: False
+  file_path: outputs/main
+  save: true
+  return: false

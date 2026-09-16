@@ -5,3 +5,20 @@ __pycache__/
 .ipynb_checkpoints
 *.pyc
 outputs/
+
+# Local documentation, tests, development settings, and generated files.
+/docs/
+/tests/
+/test/
+/test_*.py
+/AGENTS.md
+/pytest.ini
+/.agents/
+/.codex/
+.pytest_cache/
+/results/
+/logs/
+/eval/
+
+# Local copies of earlier experiments and development scripts.
+/bak/

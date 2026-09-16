@@ -11,20 +11,20 @@ set -euo pipefail
 #   - Each PDE/task job samples offsets [0, NUM_SAMPLES).
 #
 # Examples:
-#   bash scripts/sample/run_sample_sweep.sh
-#   PLAN_ONLY=true bash scripts/sample/run_sample_sweep.sh
+#   bash scripts/sampling/main/run_sweep.sh
+#   PLAN_ONLY=true bash scripts/sampling/main/run_sweep.sh
 #   NUM_SAMPLES=10 NUM_STEPS=20 DEVICE=cuda:0 \
-#     bash scripts/sample/run_sample_sweep.sh
+#     bash scripts/sampling/main/run_sweep.sh
 #   DEVICE_LIST="cuda:0 cuda:1" PARALLEL=true MAX_PARALLEL_TASKS=2 \
-#     bash scripts/sample/run_sample_sweep.sh
+#     bash scripts/sampling/main/run_sweep.sh
 #   DATA_ROOT=/path/to/PDEdata CHECKPOINT_ROOT=/path/to/pretrained \
-#     OUTPUT_DIR=outputs/MAIN1000_100 bash scripts/sample/run_sample_sweep.sh
+#     OUTPUT_DIR=outputs/MAIN1000_100 bash scripts/sampling/main/run_sweep.sh
 #
 # Per-PDE data/checkpoint overrides are also supported, for example:
 #   DATA_HELMHOLTZ=/path/to/helmholtz_test.mat
 #   CHECKPOINT_HELMHOLTZ=/path/to/pretrained-helmholtz.pkl
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "${ROOT_DIR}"
 
 NUM_SAMPLES="${NUM_SAMPLES:-1000}"
@@ -34,8 +34,8 @@ PDE_LIST="${PDE_LIST:-poisson helmholtz darcy nsnonbounded burger}"
 TASK_LIST="${TASK_LIST:-forward inverse both}"
 OUTPUT_DIR="${OUTPUT_DIR:-outputs/MAIN1000_100}"
 CONFIG_DIR="${CONFIG_DIR:-configs}"
-DATA_ROOT="${DATA_ROOT:-/data0/zhangxf/PDEdata}"
-CHECKPOINT_ROOT="${CHECKPOINT_ROOT:-/data0/zhangxf/Models/pretrained-models}"
+DATA_ROOT="${DATA_ROOT:-${ROOT_DIR}/datasets}"
+CHECKPOINT_ROOT="${CHECKPOINT_ROOT:-${ROOT_DIR}/output/pretrained}"
 DEVICE="${DEVICE:-cuda}"
 DEVICE_LIST="${DEVICE_LIST:-${DEVICE}}"
 SAMPLE_SEED="${SAMPLE_SEED:-0}"
@@ -109,11 +109,11 @@ default_data_path() {
     local pde="$1"
     [[ -n "${DATA_ROOT}" ]] || return 0
     case "${pde}" in
-        poisson) printf '%s\n' "${DATA_ROOT%/}/poisson/poisson_test_10000-128-128.mat" ;;
-        helmholtz) printf '%s\n' "${DATA_ROOT%/}/helmholtz/helmholtz_test_10000-128-128.mat" ;;
-        darcy) printf '%s\n' "${DATA_ROOT%/}/darcy/darcy_test_10000-128-128.mat" ;;
-        nsnonbounded) printf '%s\n' "${DATA_ROOT%/}/nsnonbounded/nsnonbounded_test_10000-128-128-10.mat" ;;
-        burger) printf '%s\n' "${DATA_ROOT%/}/burger/burger_test_10000-128-128.mat" ;;
+        poisson) printf '%s\n' "${DATA_ROOT%/}/poisson/poisson_test_10000-128-128_smooth.mat" ;;
+        helmholtz) printf '%s\n' "${DATA_ROOT%/}/helmholtz/helmholtz_test_10000-128-128_smooth.mat" ;;
+        darcy) printf '%s\n' "${DATA_ROOT%/}/darcy/darcy_test_10000-128-128_smooth.mat" ;;
+        nsnonbounded) printf '%s\n' "${DATA_ROOT%/}/nsnonbounded/nsnonbounded_test_10000-128-128-10_smooth.mat" ;;
+        burger) printf '%s\n' "${DATA_ROOT%/}/burgers/burger_test_10000-128-128_smooth.mat" ;;
     esac
 }
 
