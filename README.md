@@ -1,82 +1,141 @@
-# DiffusionPDE comparisons
+# DiffusionPDE Experiments for FM4PDE
 
-The existing EDM training and PDE-guided samplers used for the Poisson, Helmholtz,
-Darcy, Navier–Stokes and Burgers comparisons. Upstream license notices remain in the source files. Sampling equations and numerical guidance have been retained.
+Adapted DiffusionPDE training and PDE-guided sampling for the comparisons in
+**Guided Flow Matching for Forward and Inverse PDE Problems with Sparse
+Observations: Algorithm and Theory**. The retained experiments cover Poisson,
+Helmholtz, Darcy, Navier–Stokes, and Burgers.
 
-## Setup and data
+## Training
 
-Install the dependencies in `requirements.txt` in a suitable PyTorch environment.
-The customized training loop uses `data/load.py` to read five physical MATLAB/HDF5
-training shards per equation and `data/transform.py` for its original normalization.
-Sampling reads physical test fields and retains each sampler's normalization.
+Run commands from the repository root in Bash (Linux or WSL). Install
+[requirements.txt](requirements.txt) in a suitable PyTorch environment.
+Datasets and weights are external assets.
 
 ```bash
+python -m pip install -r requirements.txt
 export DATA_ROOT=/path/to/PDEdata
 export CHECKPOINT_ROOT=/path/to/pretrained
 export PYTHON_BIN=python
 ```
 
-Expected sampling weights are `pretrained-poisson.pkl`, `pretrained-helmholtz.pkl`,
-`pretrained-darcy.pkl`, `pretrained-ns-nonbounded.pkl` and `pretrained-burgers.pkl`.
-Per-equation `DATA_<PDE>` and `CHECKPOINT_<PDE>` overrides select explicit files.
+[train.py](train.py) calls `training_loop()` in
+[training/training_loop.py](training/training_loop.py).
+The adapted data loader reads five physical MATLAB/HDF5 shards per equation
+through [data/load.py](data/load.py); [data/transform.py](data/transform.py)
+provides the training normalization.
 
-## Training
+Launch a single-PDE training run directly:
 
 ```bash
-PDE=poisson DATA_ROOT=/path/to/PDEdata DRY_RUN=true bash scripts/training/run.sh
-PDE=poisson DATA_ROOT=/path/to/PDEdata NPROC_PER_NODE=2 bash scripts/training/run.sh
+python train.py --pde=poisson --outdir=outputs/training/poisson \
+  --data="$DATA_ROOT" --cond=0 --arch=ddpmpp \
+  --batch=64 --batch-gpu=32 \
+  --tick=10 --snap=50 --dump=100 --duration=20 --ema=0.05
 ```
 
-The launcher retains the DDPM++/EDM recipe, 64-example global batch and 20 M-image
-budget. Set `DURATION`, `BATCH`, `BATCH_GPU`, `PDE_LIST`, `OUTDIR`, or a single-PDE
-`RESUME` state as needed. `TRAIN_DATA_<PDE>` overrides the physical training-data directory.
+Or use the Bash launcher:
 
-## Main sampling
+```bash
+PDE=poisson DRY_RUN=true bash scripts/training/run.sh
+PDE=poisson NPROC_PER_NODE=2 bash scripts/training/run.sh
+PDE_LIST="poisson helmholtz darcy nsnonbounded burger" \
+  bash scripts/training/run.sh
+```
+
+The launcher uses the DDPM++/EDM recipe, a global batch of 64, and a budget of
+20 million training images. `DURATION`, `BATCH`, `BATCH_GPU`, and `OUTDIR`
+override these settings. `TRAIN_DATA_<PDE>` selects another data root;
+`RESUME=/path/to/training-state.pt` resumes a single selected PDE.
+
+## Main Sampling
+
+[generate_pde.py](generate_pde.py) dispatches to the equation-specific samplers
+in [scripts](scripts), such as [scripts/generate_poisson.py](scripts/generate_poisson.py).
+The YAML files in [configs](configs) specify the observations, weights, noise
+schedule, guidance, and outputs.
+
+For direct Python commands, first edit the selected YAML's `data.datapath`,
+`test.pre-trained`, `generate.device`, and `output.file_path` to match your
+installation. The root environment variables above are applied by the Bash
+sweep; `generate_pde.py` reads the YAML paths directly.
+
+```bash
+python generate_pde.py --config configs/poisson.yaml \
+  --problem forward --batch 10 --start_offset 0 --step_size 100
+python generate_pde.py --config configs/poisson.yaml \
+  --problem inverse --batch 10 --start_offset 0 --step_size 100
+python generate_pde.py --config configs/poisson.yaml \
+  --problem both --batch 10 --start_offset 0 --step_size 1000
+python generate_pde.py --config configs/burgers.yaml \
+  --problem both --batch 10 --start_offset 0 --step_size 1000
+```
+
+`--step_size` sets the number of denoising steps and overrides the YAML value.
+`--batch` is the number of input cases processed by this entry.
+
+The main Bash workflow runs Smooth comparisons at 100 and 1,000 steps:
 
 ```bash
 PLAN_ONLY=true bash scripts/sampling/main/run.sh
-DEVICE_LIST="cuda:0 cuda:1" PARALLEL=true bash scripts/sampling/main/run.sh
-```
+DEVICE_LIST="cuda:0 cuda:1" PARALLEL=true \
+  bash scripts/sampling/main/run.sh
 
-For Poisson, Helmholtz, Darcy and Navier–Stokes, this runs the Smooth comparisons
-at 100 and 1,000 steps, 1,000 inputs per task, and 500 observations per active field.
-Burgers runs both paper layouts at each budget: `random` selects 500 distinct
-space–time points; `time_slices` selects five complete physical time levels
-(640 values on the 128 × 128 trajectory). Both use the Smooth test set and
-evaluate the complete trajectory, including its initial time level.
-Outputs are separated by step budget under `outputs/main`; `OUTPUT_ROOT`
-changes that location. `run_sweep.sh` exposes one budget and supports explicit
-per-PDE data/checkpoint overrides. Completed results can be resumed.
+# One equation, one task, and one step budget.
+PDE_LIST=poisson TASK_LIST=both NUM_SAMPLES=100 NUM_STEPS=100 \
+  OUTPUT_DIR=outputs/main_subset \
+  bash scripts/sampling/main/run_sweep.sh
 
-```bash
-# Burgers only: both layouts, at 100 and 1,000 steps.
+# Burgers: random points and complete time slices, at both budgets.
 PDE_LIST=burger bash scripts/sampling/main/run.sh
-# Select one layout (omit PLAN_ONLY to sample).
-PDE_LIST=burger BURGER_SENSOR_MODES=random PLAN_ONLY=true bash scripts/sampling/main/run.sh
 ```
 
-`configs/burgers.yaml` selects the single-run default with `data.sensor_mode`.
-`NUM_OBS` controls random points; `BURGER_TIME_SLICES` controls complete time levels.
-Masks use `BURGER_MASK_SEED=1`, the test filename and input offset, matching the
-baseline observations independently of device, batching and resume order.
-The Burgers latent seed is `BURGER_SAMPLE_SEED=20260913` plus the input offset;
-`SAMPLE_SEED` also overrides its base seed unless `BURGER_SAMPLE_SEED` is explicit.
-Results, logs and metrics are separated by layout. The native EDM update,
-guidance weights and observation-loss divisor (640 for both layouts) are retained.
-Older configs without `sensor_mode` retain spatial sensor columns; select
-`sensor_columns` explicitly to use that layout.
+Default weights under `CHECKPOINT_ROOT` are `pretrained-poisson.pkl`,
+`pretrained-helmholtz.pkl`, `pretrained-darcy.pkl`,
+`pretrained-ns-nonbounded.pkl`, and `pretrained-burgers.pkl`.
+`DATA_<PDE>` and `CHECKPOINT_<PDE>` override individual files
+(use `BURGER` for Burgers). `OUTPUT_ROOT` changes `outputs/main`;
+`STEP_LIST` changes the two budgets. Completed results can be resumed.
 
-## Error–time trajectories
+Each comparison uses 1,000 inputs and 500 observations per active field.
+Burgers uses either 500 random space–time points or five complete physical
+time levels (640 values on a 128 × 128 trajectory), with the full trajectory
+as the evaluation target. Select layouts with
+`BURGER_SENSOR_MODES="random time_slices"`; `BURGER_TIME_SLICES` changes the
+number of observed time levels. Fixed observation and latent seeds preserve
+input-level reproducibility across batching and resume order.
+
+## Ablations
+
+The paired error–time trajectory study is implemented in the companion
+FM4PDE repository's `experiments/trajectories/`. This repository provides
+[scripts/sampling/ablations/run.sh](scripts/sampling/ablations/run.sh) as its
+launcher. Set `FM_ROOT` explicitly when the checkout is named `FM4PDEdebug`.
 
 ```bash
-FM_ROOT=/path/to/FM4PDE bash scripts/sampling/ablations/run.sh --help
+FM_ROOT=/path/to/FM4PDEdebug \
+  bash scripts/sampling/ablations/run.sh prepare --help
+FM_ROOT=/path/to/FM4PDEdebug \
+  bash scripts/sampling/ablations/run.sh run --root /path/to/trace_study
+FM_ROOT=/path/to/FM4PDEdebug \
+  bash scripts/sampling/ablations/run.sh plot \
+    --root /path/to/trace_study --output /path/to/figures
 ```
 
-The paired trajectory implementation resides in FM4PDE and consumes prepared
-inputs with fixed observations. It records reconstruction error and a common
-physical-residual evaluation for both methods. The native DiffusionPDE NS sampling
-guidance is distinct from FM4PDE's endpoint-secant evaluation. Both original
-definitions are retained.
+The run and plot examples require prepared inputs, fixed observations, and both
+methods' weights. The study records reconstruction error and a common physical
+residual; DiffusionPDE's native NS guidance retains its own residual definition.
 
-Earlier exploratory samplers, unused PDE extensions and development figures are
-preserved in ignored `bak/`. Existing datasets, model weights and results are untouched.
+## Baseline and other info
+
+Related repositories: [FM4PDE](https://github.com/Astringency/FM4PDEdebug.git),
+[RecFNO and other baselines](https://github.com/Astringency/FM4PDEbaseline.git),
+and [CoCoGen comparisons](https://github.com/Astringency/CoCoGen.git).
+
+Our code is modified and adapted from the official
+[DiffusionPDE implementation](https://github.com/jhhuangchloe/DiffusionPDE)
+by Huang et al. for the FM4PDE datasets, observation protocols, and evaluation.
+The training infrastructure, `dnnlib`, and `torch_utils` build on
+[NVIDIA EDM](https://github.com/NVlabs/edm) by Karras et al.
+The bundled resizing utility credits
+[Assaf Shocher's resizer](https://github.com/assafshocher/resizer).
+Please also acknowledge these upstream projects and retain their source notices.
